@@ -1,0 +1,80 @@
+name: Sync Yudao Cloud
+
+on:
+  schedule:
+    # 北京时间每 4 小时同步一次（09:00, 13:00, 17:00, 21:00）
+    - cron: '0 1 * * *'    # UTC 1:00 = 北京时间 09:00
+    - cron: '0 5 * * *'    # UTC 5:00 = 北京时间 13:00
+    - cron: '0 9 * * *'    # UTC 9:00 = 北京时间 17:00
+    - cron: '0 13 * * *'   # UTC 13:00 = 北京时间 21:00
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: git remote add upstream https://github.com/YunaiV/yudao-cloud.git
+
+      - name: Sync master branch
+        run: |
+          echo "📦 Syncing master branch..."
+          git fetch upstream master
+          git checkout master 2>/dev/null || git checkout -b master upstream/master
+          if git merge-base --is-ancestor upstream/master master; then
+            echo "✅ master is already up to date"
+          else
+            git merge upstream/master -m "Sync: update master from upstream" || true
+          fi
+          git push origin master --force-with-lease 2>&1 | grep -E "(master|error|Error)" || echo "✅ master pushed"
+
+      - name: Sync master-jdk17 branch
+        run: |
+          echo "📦 Syncing master-jdk17 branch..."
+          git fetch upstream master-jdk17
+          git checkout master-jdk17 2>/dev/null || git checkout -b master-jdk17 upstream/master-jdk17
+          if git merge-base --is-ancestor upstream/master-jdk17 master-jdk17; then
+            echo "✅ master-jdk17 is already up to date"
+          else
+            git merge upstream/master-jdk17 -m "Sync: update master-jdk17 from upstream" || true
+          fi
+          git push origin master-jdk17 --force-with-lease 2>&1 | grep -E "(master-jdk17|error|Error)" || echo "✅ master-jdk17 pushed"
+
+      - name: Sync tags
+        run: |
+          echo "🏷️ Syncing tags..."
+          git fetch upstream --tags
+          git push origin --tags --force-with-lease 2>&1 | tail -3 || echo "✅ Tags synced"
+
+      - name: Display sync summary
+        run: |
+          echo "📊 Sync Summary"
+          echo "=============="
+          git log --oneline -5
+          echo ""
+          echo "🔗 Upstream: https://github.com/YunaiV/yudao-cloud"
+          echo "📍 Fork: https://github.com/${{ github.repository }}"
+
+  notify:
+    runs-on: ubuntu-latest
+    needs: sync
+    if: failure()
+    steps:
+      - name: Sync failed notification
+        run: |
+          echo "❌ Sync workflow failed"
+          echo "Check the logs at: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
