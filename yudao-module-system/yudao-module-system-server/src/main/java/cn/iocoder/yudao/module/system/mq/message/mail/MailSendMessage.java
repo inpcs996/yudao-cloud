@@ -1,9 +1,9 @@
 package cn.iocoder.yudao.module.system.mq.message.mail;
 
-import jakarta.validation.constraints.NotEmpty;
-import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
+import javax.validation.constraints.NotEmpty;
+import javax.validation.constraints.NotNull;
 import java.io.File;
 import java.util.Collection;
 
@@ -53,8 +53,9 @@ public class MailSendMessage {
      */
     @NotEmpty(message = "邮件内容不能为空")
     private String content;
+
     /**
-     * 邮件附件
+     * 附件
      */
     private File[] attachments;
 
