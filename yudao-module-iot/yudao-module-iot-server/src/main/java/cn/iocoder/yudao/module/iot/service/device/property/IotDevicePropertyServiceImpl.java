@@ -8,6 +8,7 @@ import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.module.iot.controller.admin.device.vo.property.IotDevicePropertyHistoryListReqVO;
 import cn.iocoder.yudao.module.iot.controller.admin.device.vo.property.IotDevicePropertyRespVO;
 import cn.iocoder.yudao.module.iot.core.mq.message.IotDeviceMessage;
+import cn.iocoder.yudao.module.iot.core.util.IotDeviceMessageUtils;
 import cn.iocoder.yudao.module.iot.dal.dataobject.device.IotDeviceDO;
 import cn.iocoder.yudao.module.iot.dal.dataobject.device.IotDevicePropertyDO;
 import cn.iocoder.yudao.module.iot.dal.dataobject.product.IotProductDO;
@@ -77,6 +78,12 @@ public class IotDevicePropertyServiceImpl implements IotDevicePropertyService {
     }
 
     @Override
+    public void deleteDevicePropertyData(Long productId) {
+        // 删除存储结构：TDengine、IoTDB 的 DDL 差异，由存储 DAO 实现
+        devicePropertyDAO.deleteProductPropertyTable(productId);
+    }
+
+    @Override
     @SuppressWarnings("PatternVariableCanBeUsed")
     public void saveDeviceProperty(IotDeviceDO device, IotDeviceMessage message) {
         if (!(message.getParams() instanceof Map)) {
@@ -115,23 +122,31 @@ public class IotDevicePropertyServiceImpl implements IotDevicePropertyService {
                 properties.put(identifier, convertedValue);
             }
         });
+        boolean spooled = IotDeviceMessageUtils.isSpooled(message);
         if (CollUtil.isEmpty(properties)) {
             log.error("[saveDeviceProperty][消息({}) 没有合法的属性]", message);
         } else {
-            // 2.1 保存设备属性【数据】
+            // 2.1 保存设备属性【数据】：补传的消息（网关离线暂存），以网关接收时刻作为历史时间
             devicePropertyDAO.insert(device, properties,
-                    System.currentTimeMillis(),
+                    spooled ? IotDeviceMessageUtils.getSpoolTimeNotAfterNow(message) : System.currentTimeMillis(),
                     LocalDateTimeUtil.toEpochMilli(message.getReportTime()));
 
-            // 2.2 保存设备属性【日志】
+            // 2.2 保存设备属性【日志】：补传的消息，只覆盖更早的值，不覆盖之后已经上报的最新值
             Map<String, IotDevicePropertyDO> properties2 = convertMap(properties.entrySet(), Map.Entry::getKey, entry ->
                     IotDevicePropertyDO.builder().value(entry.getValue()).updateTime(message.getReportTime()).build());
-            deviceDataRedisDAO.putAll(device.getId(), properties2);
+            if (spooled) {
+                deviceDataRedisDAO.putAllIfLater(device.getId(), properties2);
+            } else {
+                deviceDataRedisDAO.putAll(device.getId(), properties2);
+            }
         }
 
         // 2.3 提取 GeoLocation 并更新设备定位
         // 为什么 properties 为空，也要执行定位更新？因为可能上报的属性里，没有合法属性，但是包含 GeoLocation 定位属性
-        extractAndUpdateDeviceLocation(device, (Map<?, ?>) message.getParams());
+        // 特殊：补传的消息是历史定位，不更新设备当前的经纬度
+        if (!spooled) {
+            extractAndUpdateDeviceLocation(device, (Map<?, ?>) message.getParams());
+        }
     }
 
     private Object convertPropertyValue(IotDeviceMessage message, IotThingModelDO thingModel, Object value) {
@@ -183,14 +198,20 @@ public class IotDevicePropertyServiceImpl implements IotDevicePropertyService {
     // ========== 设备时间相关操作 ==========
 
     @Override
-    public Set<Long> getDeviceIdListByReportTime(LocalDateTime maxReportTime) {
-        return deviceReportTimeRedisDAO.range(maxReportTime);
+    public Map<Long, LocalDateTime> getDeviceReportTimeMapByReportTime(LocalDateTime maxReportTime) {
+        return deviceReportTimeRedisDAO.rangeWithScores(maxReportTime);
     }
 
     @Override
     @Async
     public void updateDeviceReportTimeAsync(Long id, LocalDateTime reportTime) {
         deviceReportTimeRedisDAO.update(id, reportTime);
+    }
+
+    @Override
+    @Async
+    public void updateDeviceReportTimeIfLaterAsync(Long id, LocalDateTime reportTime) {
+        deviceReportTimeRedisDAO.updateIfLater(id, reportTime);
     }
 
     @Override
@@ -204,6 +225,16 @@ public class IotDevicePropertyServiceImpl implements IotDevicePropertyService {
     @Override
     public String getDeviceServerId(Long id) {
         return deviceServerIdRedisDAO.get(id);
+    }
+
+    @Override
+    public Long getGatewayServerStartTime(String serverId) {
+        return deviceServerIdRedisDAO.getGatewayServerStartTime(serverId);
+    }
+
+    @Override
+    public void updateGatewayServerStartTime(String serverId, Long startTime) {
+        deviceServerIdRedisDAO.updateGatewayServerStartTime(serverId, startTime);
     }
 
     // ========== 设备定位相关操作 ==========

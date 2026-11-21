@@ -4,11 +4,11 @@ import cn.hutool.core.util.StrUtil;
 import cn.iocoder.yudao.framework.common.util.json.JsonUtils;
 import cn.iocoder.yudao.framework.mybatis.core.handler.DefaultDBFieldHandler;
 import cn.iocoder.yudao.framework.mybatis.core.injector.YudaoSqlInjector;
+import cn.iocoder.yudao.framework.mybatis.core.interceptor.ForUpdateInnerInterceptor;
 import cn.iocoder.yudao.framework.mybatis.core.util.CaseInsensitiveResultMap;
 import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.autoconfigure.ConfigurationCustomizer;
 import com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration;
-import com.baomidou.mybatisplus.core.handlers.IJsonTypeHandler;
 import com.baomidou.mybatisplus.core.handlers.MetaObjectHandler;
 import com.baomidou.mybatisplus.core.incrementer.IKeyGenerator;
 import com.baomidou.mybatisplus.core.injector.ISqlInjector;
@@ -57,6 +57,8 @@ public class YudaoMybatisAutoConfiguration {
     public MybatisPlusInterceptor mybatisPlusInterceptor() {
         MybatisPlusInterceptor mybatisPlusInterceptor = new MybatisPlusInterceptor();
         mybatisPlusInterceptor.addInnerInterceptor(new PaginationInnerInterceptor()); // 分页插件
+        // 锁定读插件：需要位于末尾，在租户、数据权限、分页等插件改写 SQL 之后，改写 SQL Server 的行锁
+        mybatisPlusInterceptor.addInnerInterceptor(new ForUpdateInnerInterceptor());
         // ↓↓↓ 按需开启，可能会影响到 updateBatch 的地方：例如说文件配置管理 ↓↓↓
         // mybatisPlusInterceptor.addInnerInterceptor(new BlockAttackInnerInterceptor()); // 拦截没有指定条件的 update 和 delete 语句
         return mybatisPlusInterceptor;
@@ -80,6 +82,10 @@ public class YudaoMybatisAutoConfiguration {
                 CaseInsensitiveResultMap.RESULT_MAP_ID, CaseInsensitiveResultMap.class, new ArrayList<>()).build());
     }
 
+    // TODO @AI：我们能不能不解决这个问题，先留个 TODO 在哪里记录下，等神通的驱动解决 ；（毕竟它是少数者）
+    // TODO 神通：等待神通 7.0.14 / oscarJDBC8-4.1.152（元数据 7.20）后续驱动修复 typed LocalDateTime 毫秒误读、跨时区写入偏移及 DST gap 读取；
+    //  项目先沿用 MyBatis 默认的 LocalDateTimeTypeHandler，升级驱动后需用真实访谈入口与小数秒、跨时区读写验证，不承诺升级已修复
+
     @Bean
     @ConditionalOnProperty(prefix = "mybatis-plus.global-config.db-config", name = "id-type", havingValue = "INPUT")
     public IKeyGenerator keyGenerator(ConfigurableEnvironment environment) {
@@ -87,6 +93,7 @@ public class YudaoMybatisAutoConfiguration {
         if (dbType != null) {
             switch (dbType) {
                 case POSTGRE_SQL:
+                case OSCAR: // 神通：与 PostgreSQL 相同，使用 nextval('序列名') 获取序列值
                     return new PostgreKeyGenerator();
                 case ORACLE:
                 case ORACLE_12C:

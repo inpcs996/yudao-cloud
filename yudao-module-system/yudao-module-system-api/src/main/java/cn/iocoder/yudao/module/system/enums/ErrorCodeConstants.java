@@ -16,6 +16,8 @@ public interface ErrorCodeConstants {
     ErrorCode AUTH_THIRD_LOGIN_NOT_BIND = new ErrorCode(1_002_000_005, "未绑定账号，需要进行绑定");
     ErrorCode AUTH_MOBILE_NOT_EXISTS = new ErrorCode(1_002_000_007, "手机号不存在");
     ErrorCode AUTH_REGISTER_CAPTCHA_CODE_ERROR = new ErrorCode(1_002_000_008, "验证码不正确，原因：{}");
+    ErrorCode AUTH_QRCODE_INVALID = new ErrorCode(1_002_000_009, "二维码已失效或领取凭证不正确，请重新扫码");
+    ErrorCode AUTH_QRCODE_ALREADY_CONFIRMED = new ErrorCode(1_002_000_010, "二维码已被其他用户确认，请重新扫码");
 
     // ========== 菜单模块 1-002-001-000 ==========
     ErrorCode MENU_NAME_DUPLICATE = new ErrorCode(1_002_001_000, "已经存在该名字的菜单");
@@ -104,6 +106,9 @@ public interface ErrorCodeConstants {
     ErrorCode SMS_CODE_USED = new ErrorCode(1_002_014_002, "验证码已使用");
     ErrorCode SMS_CODE_EXCEED_SEND_MAXIMUM_QUANTITY_PER_DAY = new ErrorCode(1_002_014_004, "超过每日短信发送数量");
     ErrorCode SMS_CODE_SEND_TOO_FAST = new ErrorCode(1_002_014_005, "短信发送过于频繁");
+    ErrorCode SMS_CODE_EXCEED_VALIDATE_MAXIMUM_QUANTITY = new ErrorCode(1_002_014_006, "验证码错误次数过多，请重新获取");
+    ErrorCode SMS_CODE_EXCEED_SEND_MAXIMUM_QUANTITY_PER_IP_PER_DAY = new ErrorCode(1_002_014_007, "超过当前 IP 每日短信发送数量");
+    ErrorCode SMS_CODE_EXCEED_SEND_MAXIMUM_QUANTITY_PER_IP_PER_HOUR = new ErrorCode(1_002_014_008, "超过当前 IP 每小时短信发送数量");
 
     // ========== 租户信息 1-002-015-000 ==========
     ErrorCode TENANT_NOT_EXISTS = new ErrorCode(1_002_015_000, "租户不存在");

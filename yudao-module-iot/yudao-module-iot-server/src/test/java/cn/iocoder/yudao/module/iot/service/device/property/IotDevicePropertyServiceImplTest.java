@@ -213,6 +213,31 @@ public class IotDevicePropertyServiceImplTest extends BaseMockitoUnitTest {
     }
 
     @Test
+    public void testDeleteDevicePropertyData_success() {
+        // 准备参数
+        Long productId = 2L;
+
+        // 调用
+        service.deleteDevicePropertyData(productId);
+
+        // 断言：委托给存储 DAO 删除属性表，不依赖 MySQL 产品是否存在
+        verify(devicePropertyDAO).deleteProductPropertyTable(eq(productId));
+        verifyNoInteractions(productService, thingModelService);
+    }
+
+    @Test
+    public void testDeleteDevicePropertyData_failed() {
+        // 准备参数
+        Long productId = 2L;
+        // mock 方法：存储 DAO 删除失败
+        RuntimeException failure = new RuntimeException("drop property table failed");
+        doThrow(failure).when(devicePropertyDAO).deleteProductPropertyTable(productId);
+
+        // 调用，并断言：异常原样抛出，由产品删除流程中止
+        assertSame(failure, assertThrows(RuntimeException.class, () -> service.deleteDevicePropertyData(productId)));
+    }
+
+    @Test
     public void testSaveDeviceProperty_success() {
         // 准备参数
         IotDeviceDO device = buildDevice();
@@ -236,6 +261,33 @@ public class IotDevicePropertyServiceImplTest extends BaseMockitoUnitTest {
         verify(devicePropertyDAO).insert(eq(device), eq(MapUtil.of("Temperature", 36)), tsCaptor.capture(),
                 eq(LocalDateTimeUtil.toEpochMilli(message.getReportTime())));
         assertTrue(tsCaptor.getValue() >= before && tsCaptor.getValue() <= after);
+    }
+
+    @Test
+    public void testSaveDeviceProperty_spooled() {
+        // 准备参数：补传的消息，网关接收时刻在 1 小时前，并带有历史定位
+        IotDeviceDO device = buildDevice();
+        IotThingModelDO thingModel = buildThingModel("Temperature", IotDataSpecsDataTypeEnum.INT.getDataType());
+        Map<String, Object> params = new HashMap<>();
+        params.put("Temperature", 36);
+        params.put("GeoLocation", MapUtil.of("Longitude", 120));
+        long spoolTime = System.currentTimeMillis() - 3600 * 1000L;
+        IotDeviceMessage message = buildMessage(params).setReportTime(LocalDateTimeUtil.of(spoolTime))
+                .setSpoolTime(spoolTime);
+
+        // mock 方法
+        when(thingModelService.getThingModelListByProductIdFromCache(device.getProductId()))
+                .thenReturn(singletonList(thingModel));
+        when(thingModelService.convertThingModelPropertyValue(thingModel, 36)).thenReturn(36);
+
+        // 调用
+        service.saveDeviceProperty(device, message);
+
+        // 断言：历史时间为网关接收时刻；最新值只覆盖更早的值；不更新当前定位
+        verify(devicePropertyDAO).insert(eq(device), eq(MapUtil.of("Temperature", 36)), eq(spoolTime), eq(spoolTime));
+        verify(deviceDataRedisDAO).putAllIfLater(eq(device.getId()), any());
+        verify(deviceDataRedisDAO, never()).putAll(anyLong(), any());
+        verify(deviceService, never()).updateDeviceLocation(any(), any(), any());
     }
 
     // ========== getHistoryDevicePropertyList ==========
